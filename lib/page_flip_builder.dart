@@ -58,7 +58,7 @@ class PageFlipBuilderState extends State<PageFlipBuilder>
     if (_showFrontSide) {
       _controller.forward();
     } else {
-      _controller.reverse();
+      _controller.forward();
     }
   }
 
@@ -67,10 +67,50 @@ class PageFlipBuilderState extends State<PageFlipBuilder>
     _controller.value += details.primaryDelta! / screenWidth;
   }
 
+  void _handleDragEnd(DragEndDetails details) {
+    // If the controller is currently animating or has already completed, do nothing
+    if (_controller.isAnimating ||
+        _controller.status == AnimationStatus.completed ||
+        _controller.status == AnimationStatus.dismissed) return;
+
+    // calculate the currentVelocity based on the drag velocity and screen width
+    final screenWidth = MediaQuery.of(context).size.width;
+    final currentVelocity = details.velocity.pixelsPerSecond.dx / screenWidth;
+
+    // if value and velocity are 0.0, the gesture was a tap so we return early
+    if (_controller.value == 0.0 && currentVelocity == 0.0) {
+      return;
+    }
+
+    const flingVelocity = 2.0;
+    if (_controller.value > 0.5 ||
+        _controller.value > 0.0 && currentVelocity > flingVelocity) {
+      _controller.fling(velocity: flingVelocity);
+    } else if (_controller.value < -0.5 ||
+        _controller.value < 0.0 && currentVelocity < -flingVelocity) {
+      _controller.fling(velocity: -flingVelocity);
+    } else if (_controller.value > 0.0 ||
+        _controller.value > 0.5 && currentVelocity < -flingVelocity) {
+      // controller can't fling to 0.0 because the lowerBound is -1.0
+      // so we decrement the value by 1.0 and toggle the state to get the same effect
+      _controller.value -= 1.0;
+      setState(() => _showFrontSide = !_showFrontSide);
+      _controller.fling(velocity: -currentVelocity);
+    } else if (_controller.value > -0.5 ||
+        _controller.value < -0.5 && currentVelocity > flingVelocity) {
+      // controller can't fling to 0.0 because the upperBound is 1.0
+      // so we increment the value by 1.0 and toggle the state to get the same effect
+      _controller.value += 1.0;
+      setState(() => _showFrontSide = !_showFrontSide);
+      _controller.fling(velocity: flingVelocity);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onHorizontalDragUpdate: _handleDragUpdate,
+      onHorizontalDragEnd: _handleDragEnd,
       child: AnimatedPageFlipBuilder(
         animation: _controller,
         showFrontSide: _showFrontSide,
@@ -120,9 +160,9 @@ class AnimatedPageFlipBuilder extends StatelessWidget {
     return AnimatedBuilder(
       animation: animation,
       builder: (context, child) {
-        final child = _isAnimationFirstHalf
-            ? frontBuilder(context)
-            : backBuilder(context);
+        final child = _isAnimationFirstHalf ^ showFrontSide
+            ? backBuilder(context)
+            : frontBuilder(context);
 
         return Transform(
           transform: Matrix4.rotationY(_rotationAngle())
